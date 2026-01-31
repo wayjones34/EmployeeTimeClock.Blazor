@@ -1,10 +1,11 @@
 ﻿@page "/dashboard"
 @rendermode InteractiveServer
 @using EmployeeTimeClock.Web.Ports
-@using EmployeeTimeClock.Web.State
-@inject SessionState Session
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
 @inject ITimeClockService Clock
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
 
 <div class="dashboard-container">
     <h2>Dashboard</h2>
@@ -15,22 +16,24 @@
             <strong>Error:</strong> @error
             <button type="button" class="btn-close" @onclick="() => error = null"></button>
         </div>
-        <button class="btn btn-secondary" @onclick="GoToLogin">Go to Login</button>
+        <a href="/login" class="btn btn-secondary">Go to Login</a>
     }
-    else if (!Session.IsLoggedIn || Session.CurrentUser is null)
+    else if (!isAuthenticated)
     {
-        <div class="alert alert-warning alert-dismissible fade show">
+        <div class="alert alert-warning">
             You are not logged in. Please log in to access the dashboard.
-            <button type="button" class="btn-close" @onclick="() => error = null"></button>
         </div>
-        <button class="btn btn-primary" @onclick="GoToLogin">Go to Login</button>
+        <a href="/login" class="btn btn-primary">Go to Login</a>
     }
     else
     {
         <div class="welcome-section">
             <div>
-                <p><strong>Welcome back, @Session.CurrentUser.DisplayName!</strong></p>
-                <p style="color: #666; font-size: 0.95em;">Role: @Session.CurrentUser.Role</p>
+                <p><strong>Welcome back, @displayName!</strong></p>
+                <p style="color: rgba(255,255,255,0.8); font-size: 0.95em;">Role: @userRole</p>
+            </div>
+            <div>
+                <a href="/api/logout" class="btn btn-outline-light btn-sm">Logout</a>
             </div>
         </div>
 
@@ -204,6 +207,11 @@
 </style>
 
 @code {
+    private bool isAuthenticated;
+    private int userId;
+    private string? displayName;
+    private string? userRole;
+
     private bool isClockedIn;
     private string statusText = "Loading...";
     private string? message;
@@ -215,8 +223,19 @@
     {
         try
         {
-            if (!Session.IsLoggedIn || Session.CurrentUser is null)
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+
+            if (!isAuthenticated)
                 return;
+
+            // Extract user info from claims
+            displayName = user.FindFirst("DisplayName")?.Value ?? user.Identity?.Name ?? "User";
+            userRole = user.FindFirst(ClaimTypes.Role)?.Value ?? "Employee";
+            var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            userId = int.TryParse(userIdClaim, out var id) ? id : 0;
 
             await RefreshStatus();
         }
@@ -226,11 +245,8 @@
         }
     }
 
-    private void GoToLogin() => Nav.NavigateTo("/login", replace: true);
-
     private async Task RefreshStatus()
     {
-        var userId = Session.CurrentUser!.Id;
         isClockedIn = await Clock.IsClockedInAsync(userId);
 
         if (isClockedIn)
@@ -257,7 +273,7 @@
         message = null;
         try
         {
-            await Clock.ClockInAsync(Session.CurrentUser!.Id, DateTime.Now);
+            await Clock.ClockInAsync(userId, DateTime.Now);
             message = "✅ You have been clocked in successfully.";
             await RefreshStatus();
         }
@@ -279,7 +295,7 @@
 
         try
         {
-            var closed = await Clock.ClockOutAsync(Session.CurrentUser!.Id, DateTime.Now);
+            var closed = await Clock.ClockOutAsync(userId, DateTime.Now);
             var hours = closed.DurationMinutes / 60;
             var minutes = closed.DurationMinutes % 60;
             message = $"✅ Clocked out successfully. Duration: {hours}h {minutes}m";

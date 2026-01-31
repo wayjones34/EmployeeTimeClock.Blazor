@@ -1,9 +1,4 @@
 ﻿@page "/login"
-@rendermode InteractiveServer
-@using EmployeeTimeClock.Web.Ports
-@using EmployeeTimeClock.Web.State
-@inject IAuthService Auth
-@inject SessionState Session
 @inject NavigationManager Nav
 
 <div class="login-container">
@@ -13,45 +8,40 @@
             <p>Login to track your work time</p>
         </div>
 
-        <div class="form-group">
-            <label for="username" class="form-label">Username</label>
-            <input
-                type="text"
-                class="form-control"
-                id="username"
-                @bind="username"
-                placeholder="Enter your username" />
-        </div>
-
-        <div class="form-group">
-            <label for="password" class="form-label">Password</label>
-            <input
-                type="password"
-                class="form-control"
-                id="password"
-                @bind="password"
-                placeholder="Enter your password" />
-        </div>
-
-        @if (!string.IsNullOrWhiteSpace(error))
-        {
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <strong>Login Failed:</strong> @error
-                <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        <form method="post" action="/api/login" data-enhance="false">
+            <div class="form-group">
+                <label for="username" class="form-label">Username</label>
+                <input
+                    type="text"
+                    class="form-control"
+                    id="username"
+                    name="username"
+                    placeholder="Enter your username"
+                    required />
             </div>
-        }
 
-        <button type="button" class="btn btn-primary btn-login" disabled="@isLoading" @onclick="OnLogin">
-            @if (isLoading)
+            <div class="form-group">
+                <label for="password" class="form-label">Password</label>
+                <input
+                    type="password"
+                    class="form-control"
+                    id="password"
+                    name="password"
+                    placeholder="Enter your password"
+                    required />
+            </div>
+
+            @if (HasError)
             {
-                <span class="spinner-border spinner-border-sm me-2"></span>
-                <span>Logging in...</span>
+                <div class="alert alert-danger" role="alert">
+                    <strong>Login Failed:</strong> Invalid username or password.
+                </div>
             }
-            else
-            {
+
+            <button type="submit" class="btn btn-primary btn-login">
                 <span>Login</span>
-            }
-        </button>
+            </button>
+        </form>
 
         <div class="demo-section">
             <p><strong>Demo Credentials:</strong></p>
@@ -62,6 +52,13 @@
         </div>
     </div>
 </div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorParam { get; set; }
+
+    private bool HasError => ErrorParam == "1";
+}
 
 <style>
     .login-container {
@@ -216,48 +213,4 @@
     }
 </style>
 
-@code {
-    private string username = "demo";
-    private string password = "demo";
-    private string? error;
-    private bool isLoading = false;
 
-    private async Task OnLogin()
-    {
-        error = null;
-        isLoading = true;
-        StateHasChanged();
-
-        try
-        {
-            // Debug: show what we're sending
-            Console.WriteLine($"Attempting login with: {username}/{password}");
-
-            var user = await Auth.LoginAsync(username, password);
-
-            Console.WriteLine($"Login result: {(user is null ? "NULL" : user.DisplayName)}");
-
-            if (user is null)
-            {
-                error = "Invalid username or password. Please try again.";
-                isLoading = false;
-                StateHasChanged();
-                return;
-            }
-
-            Session.SetUser(user);
-            Console.WriteLine($"Session set, IsLoggedIn: {Session.IsLoggedIn}");
-
-            // Try navigation
-            Console.WriteLine("Navigating to dashboard...");
-            Nav.NavigateTo("/dashboard");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Exception: {ex}");
-            error = $"Login error: {ex.Message}";
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
-}
