@@ -1,0 +1,74 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using EmployeeTimeClock.Web.State
+@inject SessionState Session
+@inject NavigationManager Nav
+
+<PageTitle>Employee Time Clock</PageTitle>
+
+<div class="home-container">
+    <div class="home-content">
+        <h1>🕐 Employee Time Clock</h1>
+        <p class="lead">Welcome to the Employee Time Clock System</p>
+
+        @if (Session.IsLoggedIn)
+        {
+            <p>You are logged in as <strong>@Session.CurrentUser?.DisplayName</strong></p>
+            <div class="button-group">
+                <button class="btn btn-primary btn-lg" @onclick="GoToDashboard">
+                    Go to Dashboard
+                </button>
+            </div>
+        }
+        else
+        {
+            <p>Please log in to track your time.</p>
+            <div class="button-group">
+                <button class="btn btn-primary btn-lg" @onclick="GoToLogin">
+                    Login
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .home-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 70vh;
+        padding: 2rem;
+    }
+
+    .home-content {
+        text-align: center;
+        max-width: 600px;
+    }
+
+    .home-content h1 {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+        color: #2c3e50;
+    }
+
+    .lead {
+        font-size: 1.25rem;
+        color: #666;
+        margin-bottom: 2rem;
+    }
+
+    .button-group {
+        margin-top: 2rem;
+    }
+
+    .btn-lg {
+        padding: 0.75rem 2rem;
+        font-size: 1.1rem;
+    }
+</style>
+
+@code {
+    private void GoToLogin() => Nav.NavigateTo("/login");
+    private void GoToDashboard() => Nav.NavigateTo("/dashboard");
+}

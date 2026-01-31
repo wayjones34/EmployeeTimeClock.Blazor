@@ -1,0 +1,263 @@
+﻿@page "/login"
+@rendermode InteractiveServer
+@using EmployeeTimeClock.Web.Ports
+@using EmployeeTimeClock.Web.State
+@inject IAuthService Auth
+@inject SessionState Session
+@inject NavigationManager Nav
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <h2>Employee Time Clock</h2>
+            <p>Login to track your work time</p>
+        </div>
+
+        <div class="form-group">
+            <label for="username" class="form-label">Username</label>
+            <input
+                type="text"
+                class="form-control"
+                id="username"
+                @bind="username"
+                placeholder="Enter your username" />
+        </div>
+
+        <div class="form-group">
+            <label for="password" class="form-label">Password</label>
+            <input
+                type="password"
+                class="form-control"
+                id="password"
+                @bind="password"
+                placeholder="Enter your password" />
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(error))
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <strong>Login Failed:</strong> @error
+                <button type="button" class="btn-close" @onclick="() => error = null"></button>
+            </div>
+        }
+
+        <button type="button" class="btn btn-primary btn-login" disabled="@isLoading" @onclick="OnLogin">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span>Logging in...</span>
+            }
+            else
+            {
+                <span>Login</span>
+            }
+        </button>
+
+        <div class="demo-section">
+            <p><strong>Demo Credentials:</strong></p>
+            <ul>
+                <li><code>demo</code> / <code>demo</code> — Employee account</li>
+                <li><code>admin</code> / <code>admin</code> — Admin account</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+    .login-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+    }
+
+    .login-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        padding: 2.5rem 2rem;
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .login-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    .login-header h2 {
+        margin: 0 0 0.5rem 0;
+        color: #333;
+        font-size: 1.8em;
+        font-weight: 700;
+    }
+
+    .login-header p {
+        margin: 0;
+        color: #666;
+        font-size: 0.95em;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #333;
+        font-weight: 600;
+        font-size: 0.95em;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 1em;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-control:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        outline: none;
+    }
+
+    .btn-login {
+        width: 100%;
+        padding: 0.75rem;
+        font-size: 1em;
+        font-weight: 600;
+        margin-top: 1rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    .demo-section {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background: #f8f9fa;
+        border-radius: 6px;
+        border-left: 4px solid #667eea;
+    }
+
+    .demo-section p {
+        margin: 0 0 1rem 0;
+        font-weight: 600;
+        color: #333;
+        font-size: 0.95em;
+    }
+
+    .demo-section ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .demo-section li {
+        padding: 0.5rem 0;
+        color: #555;
+        font-size: 0.9em;
+    }
+
+    .demo-section code {
+        background: #e0e0e0;
+        padding: 0.25rem 0.5rem;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 0.9em;
+        color: #333;
+    }
+
+    .spinner-border-sm {
+        width: 1rem;
+        height: 1rem;
+        border-width: 0.2em;
+    }
+
+    @@media (max-width: 500px) {
+        .login-container {
+            padding: 0.5rem;
+        }
+
+        .login-card {
+            padding: 2rem 1.5rem;
+        }
+
+        .login-header h2 {
+            font-size: 1.5em;
+        }
+
+        .demo-section {
+            margin-top: 1.5rem;
+            padding: 1rem;
+        }
+    }
+</style>
+
+@code {
+    private string username = "demo";
+    private string password = "demo";
+    private string? error;
+    private bool isLoading = false;
+
+    private async Task OnLogin()
+    {
+        error = null;
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Debug: show what we're sending
+            Console.WriteLine($"Attempting login with: {username}/{password}");
+
+            var user = await Auth.LoginAsync(username, password);
+
+            Console.WriteLine($"Login result: {(user is null ? "NULL" : user.DisplayName)}");
+
+            if (user is null)
+            {
+                error = "Invalid username or password. Please try again.";
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            Session.SetUser(user);
+            Console.WriteLine($"Session set, IsLoggedIn: {Session.IsLoggedIn}");
+
+            // Try navigation
+            Console.WriteLine("Navigating to dashboard...");
+            Nav.NavigateTo("/dashboard");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex}");
+            error = $"Login error: {ex.Message}";
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

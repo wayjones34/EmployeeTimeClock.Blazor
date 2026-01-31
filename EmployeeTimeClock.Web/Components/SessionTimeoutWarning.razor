@@ -1,0 +1,199 @@
+@using EmployeeTimeClock.Web.State
+@using EmployeeTimeClock.Web.Ports
+@implements IAsyncDisposable
+
+@if (showWarning)
+{
+    <div class="session-warning-overlay">
+        <div class="session-warning-dialog">
+            <div class="warning-icon">⏱️</div>
+            <h3>Session Timeout Warning</h3>
+            <p>Your session will expire due to inactivity in <strong>@warningCountdown seconds</strong>.</p>
+            <p style="color: #666; font-size: 0.95em;">Click below to continue your session.</p>
+            <div class="button-group">
+                <button class="btn btn-primary" @onclick="OnContinueSession">Continue Session</button>
+                <button class="btn btn-secondary" @onclick="OnLogout">Logout Now</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .session-warning-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+
+    .session-warning-dialog {
+        background-color: white;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        padding: 2rem;
+        max-width: 400px;
+        text-align: center;
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @@keyframes slideIn {
+        from {
+            transform: translateY(-50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .warning-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+
+    .session-warning-dialog h3 {
+        margin: 0.5rem 0 1rem 0;
+        color: #d9534f;
+        font-weight: 600;
+    }
+
+    .session-warning-dialog p {
+        margin: 1rem 0;
+        color: #555;
+        line-height: 1.6;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .button-group .btn {
+        flex: 1;
+        padding: 0.75rem 1rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background-color: #007bff;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background-color: #0056b3;
+    }
+
+    .btn-secondary {
+        background-color: #6c757d;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background-color: #545b62;
+    }
+
+    @@media (max-width: 500px) {
+        .session-warning-dialog {
+            padding: 1.5rem;
+            margin: 1rem;
+        }
+
+        .button-group {
+            flex-direction: column;
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public SessionTimeoutService? SessionTimeoutService { get; set; }
+
+    [Inject]
+    public required IAuthService AuthService { get; set; }
+
+    [Inject]
+    public required NavigationManager Navigation { get; set; }
+
+    private bool showWarning = false;
+    private int warningCountdown = 0;
+    private PeriodicTimer? countdownTimer;
+
+    protected override void OnInitialized()
+    {
+        if (SessionTimeoutService != null)
+        {
+            SessionTimeoutService.OnWarning += ShowWarning;
+        }
+    }
+
+    private async Task ShowWarning()
+    {
+        showWarning = true;
+        warningCountdown = SessionTimeoutService?.WarningMinutes * 60 ?? 300;
+
+        // Start countdown ticker
+        countdownTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        try
+        {
+            while (await countdownTimer.WaitForNextTickAsync())
+            {
+                warningCountdown--;
+                StateHasChanged();
+                
+                if (warningCountdown <= 0)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer was cancelled
+        }
+    }
+
+    private async Task OnContinueSession()
+    {
+        showWarning = false;
+        countdownTimer?.Dispose();
+        
+        if (SessionTimeoutService != null)
+        {
+            await SessionTimeoutService.ResetTimeoutAsync();
+        }
+    }
+
+    private async Task OnLogout()
+    {
+        showWarning = false;
+        countdownTimer?.Dispose();
+        
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login", replace: true);
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        countdownTimer?.Dispose();
+
+        if (SessionTimeoutService != null)
+        {
+            SessionTimeoutService.OnWarning -= ShowWarning;
+        }
+
+        await ValueTask.CompletedTask;
+    }
+}

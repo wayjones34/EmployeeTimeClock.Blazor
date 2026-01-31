@@ -1,0 +1,308 @@
+﻿@page "/dashboard"
+@rendermode InteractiveServer
+@using EmployeeTimeClock.Web.Ports
+@using EmployeeTimeClock.Web.State
+@inject SessionState Session
+@inject ITimeClockService Clock
+@inject NavigationManager Nav
+
+<div class="dashboard-container">
+    <h2>Dashboard</h2>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            <strong>Error:</strong> @error
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+        <button class="btn btn-secondary" @onclick="GoToLogin">Go to Login</button>
+    }
+    else if (!Session.IsLoggedIn || Session.CurrentUser is null)
+    {
+        <div class="alert alert-warning alert-dismissible fade show">
+            You are not logged in. Please log in to access the dashboard.
+            <button type="button" class="btn-close" @onclick="() => error = null"></button>
+        </div>
+        <button class="btn btn-primary" @onclick="GoToLogin">Go to Login</button>
+    }
+    else
+    {
+        <div class="welcome-section">
+            <div>
+                <p><strong>Welcome back, @Session.CurrentUser.DisplayName!</strong></p>
+                <p style="color: #666; font-size: 0.95em;">Role: @Session.CurrentUser.Role</p>
+            </div>
+        </div>
+
+        <div class="clock-section">
+            <div class="status-card">
+                <h4>Clock Status</h4>
+                <div class="status-display">
+                    <div class="status-badge @(isClockedIn ? "clocked-in" : "clocked-out")">
+                        @if (isClockedIn)
+                        {
+                            <span class="status-dot"></span>
+                            <span>Clocked In</span>
+                        }
+                        else
+                        {
+                            <span>Clocked Out</span>
+                        }
+                    </div>
+                    <p class="status-time">@statusText</p>
+                </div>
+
+                <div class="clock-actions">
+                    <button class="btn btn-success btn-lg" disabled="@isClockedIn" @onclick="OnClockIn">
+                        <span class="oi oi-media-play"></span> Clock In
+                    </button>
+                    <button class="btn btn-danger btn-lg" disabled="@(!isClockedIn)" @onclick="RequestClockOut">
+                        <span class="oi oi-media-stop"></span> Clock Out
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <div class="alert @(message.StartsWith("✅") ? "alert-success" : "alert-danger") mt-3" role="alert">
+                        @message
+                    </div>
+                }
+            </div>
+        </div>
+
+        <ConfirmDialog 
+            IsVisible="@showClockOutConfirm" 
+            Title="Confirm Clock Out"
+            Message="Are you sure you want to clock out?"
+            Details="@($"Clocked in since: {clockInTime:t} ({elapsedTime} elapsed)")"
+            ConfirmText="Clock Out"
+            CancelText="Cancel"
+            OnConfirmCallback="OnClockOutConfirmed"
+            OnCancelCallback="OnClockOutCancelled" />
+    }
+</div>
+
+<style>
+    .dashboard-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .welcome-section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .welcome-section p {
+        margin: 0.5rem 0;
+    }
+
+    .clock-section {
+        margin: 2rem 0;
+    }
+
+    .status-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 2rem;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .status-card h4 {
+        margin-top: 0;
+        color: #333;
+        font-weight: 600;
+    }
+
+    .status-display {
+        margin: 1.5rem 0;
+        text-align: center;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 20px;
+        font-size: 1.1em;
+        font-weight: 600;
+        margin-bottom: 1rem;
+    }
+
+    .status-badge.clocked-in {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .status-badge.clocked-out {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
+    .status-dot {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        background-color: #28a745;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .status-time {
+        color: #666;
+        font-size: 0.95em;
+        margin: 0;
+    }
+
+    .clock-actions {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-lg {
+        padding: 0.75rem 2rem;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    @media (max-width: 600px) {
+        .clock-actions {
+            flex-direction: column;
+        }
+
+        .btn-lg {
+            width: 100%;
+        }
+
+        .dashboard-container {
+            padding: 1rem 0.5rem;
+        }
+
+        .status-card {
+            padding: 1.5rem;
+        }
+    }
+</style>
+
+@code {
+    private bool isClockedIn;
+    private string statusText = "Loading...";
+    private string? message;
+    private string? error;
+    private bool showClockOutConfirm = false;
+    private DateTime clockInTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (!Session.IsLoggedIn || Session.CurrentUser is null)
+                return;
+
+            await RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private void GoToLogin() => Nav.NavigateTo("/login", replace: true);
+
+    private async Task RefreshStatus()
+    {
+        var userId = Session.CurrentUser!.Id;
+        isClockedIn = await Clock.IsClockedInAsync(userId);
+
+        if (isClockedIn)
+        {
+            var open = await Clock.GetOpenEntryAsync(userId);
+            if (open is not null)
+            {
+                clockInTime = open.ClockIn;
+                statusText = $"Clocked in since {open.ClockIn:g}";
+            }
+            else
+            {
+                statusText = "Clocked In (duration unknown)";
+            }
+        }
+        else
+        {
+            statusText = "Ready to clock in";
+        }
+    }
+
+    private async Task OnClockIn()
+    {
+        message = null;
+        try
+        {
+            await Clock.ClockInAsync(Session.CurrentUser!.Id, DateTime.Now);
+            message = "✅ You have been clocked in successfully.";
+            await RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Clock in failed: {ex.Message}";
+        }
+    }
+
+    private void RequestClockOut()
+    {
+        showClockOutConfirm = true;
+    }
+
+    private async Task OnClockOutConfirmed()
+    {
+        showClockOutConfirm = false;
+        message = null;
+
+        try
+        {
+            var closed = await Clock.ClockOutAsync(Session.CurrentUser!.Id, DateTime.Now);
+            var hours = closed.DurationMinutes / 60;
+            var minutes = closed.DurationMinutes % 60;
+            message = $"✅ Clocked out successfully. Duration: {hours}h {minutes}m";
+            await RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Clock out failed: {ex.Message}";
+        }
+    }
+
+    private void OnClockOutCancelled()
+    {
+        showClockOutConfirm = false;
+    }
+
+    private string elapsedTime
+    {
+        get
+        {
+            if (clockInTime == default) return "calculating...";
+            var elapsed = DateTime.Now - clockInTime;
+            var hours = (int)elapsed.TotalHours;
+            var minutes = elapsed.Minutes;
+            if (hours == 0) return $"{minutes}m";
+            return $"{hours}h {minutes}m";
