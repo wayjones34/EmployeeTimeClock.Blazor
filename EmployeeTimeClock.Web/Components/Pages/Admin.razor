@@ -1,24 +1,25 @@
 @page "/admin"
 @rendermode InteractiveServer
 @using EmployeeTimeClock.Web.Ports
-@using EmployeeTimeClock.Web.State
 @using EmployeeTimeClock.Web.Domain.Entities
-@inject SessionState Session
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
 @inject IAuthService AuthService
 @inject ITimeClockService Clock
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
 
 <div class="admin-container">
     <h2>Administrator Console</h2>
 
-    @if (!Session.IsLoggedIn || Session.CurrentUser is null)
+    @if (!isAuthenticated)
     {
         <div class="alert alert-warning">
             You are not logged in.
         </div>
         <button class="btn btn-primary" @onclick="GoToLogin">Go to Login</button>
     }
-    else if (!Session.IsAdmin)
+    else if (!isAdmin)
     {
         <div class="alert alert-danger">
             <strong>Access Denied</strong> — Only administrators can access this page.
@@ -28,7 +29,7 @@
     else
     {
         <div class="admin-welcome">
-            <p>Logged in as: <strong>@Session.CurrentUser.DisplayName</strong> (Admin)</p>
+            <p>Logged in as: <strong>@displayName</strong> (Admin)</p>
         </div>
 
         <div class="admin-tabs">
@@ -341,6 +342,10 @@
 </style>
 
 @code {
+    private bool isAuthenticated;
+    private bool isAdmin;
+    private string? displayName;
+
     private string activeTab = "users";
     private IReadOnlyList<UserAccount>? users;
     private IReadOnlyList<TimeEntry>? allTimeEntries;
@@ -350,7 +355,22 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!Session.IsLoggedIn || !Session.IsAdmin)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+
+        if (!isAuthenticated)
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        displayName = user.FindFirst("DisplayName")?.Value ?? user.Identity?.Name ?? "User";
+        var userRole = user.FindFirst(ClaimTypes.Role)?.Value ?? "Employee";
+        isAdmin = userRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+
+        if (!isAdmin)
         {
             Nav.NavigateTo("/dashboard", replace: true);
             return;

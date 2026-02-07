@@ -1,9 +1,12 @@
 ﻿@page "/dashboard"
 @rendermode InteractiveServer
+@implements IDisposable
 @using EmployeeTimeClock.Web.Ports
+@using EmployeeTimeClock.Web.Domain.Entities
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
 @inject ITimeClockService Clock
+@inject IAuthService AuthService
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 
@@ -38,7 +41,7 @@
         </div>
 
         <div class="clock-section">
-            <div class="status-card">
+            <div class="status-card @(isClockedIn ? "status-card-active" : "")">
                 <h4>Clock Status</h4>
                 <div class="status-display">
                     <div class="status-badge @(isClockedIn ? "clocked-in" : "clocked-out")">
@@ -52,6 +55,15 @@
                             <span>Clocked Out</span>
                         }
                     </div>
+
+                    @if (isClockedIn)
+                    {
+                        <div class="elapsed-timer">
+                            <span class="timer-label">Elapsed:</span>
+                            <span class="timer-value">@liveElapsedTime</span>
+                        </div>
+                    }
+
                     <p class="status-time">@statusText</p>
                 </div>
 
@@ -63,18 +75,164 @@
                         <span class="oi oi-media-stop"></span> Clock Out
                     </button>
                 </div>
+            </div>
+        </div>
 
-                @if (!string.IsNullOrWhiteSpace(message))
+        @* Toast Notification Container *@
+        @if (toasts.Count > 0)
+        {
+            <div class="toast-container">
+                @foreach (var toast in toasts)
                 {
-                    <div class="alert @(message.StartsWith("✅") ? "alert-success" : "alert-danger") mt-3" role="alert">
-                        @message
+                    <div class="toast-notification @toast.Type @(toast.IsExiting ? "toast-exit" : "")">
+                        <span class="toast-icon">@toast.Icon</span>
+                        <span class="toast-message">@toast.Message</span>
+                        <button class="toast-close" @onclick="() => DismissToast(toast.Id)">&times;</button>
+                    </div>
+                }
+            </div>
+        }
+
+        @* Today's History Panel *@
+        <div class="history-section">
+            <div class="history-card">
+                <div class="history-header">
+                    <h4>📅 Today's Time Entries</h4>
+                    <span class="total-badge">Total: @FormatDuration(todayTotalMinutes)</span>
+                </div>
+
+                @if (todayEntries == null || todayEntries.Count == 0)
+                {
+                    <p class="no-entries">No entries for today yet.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Clock In</th>
+                                    <th>Clock Out</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in todayEntries)
+                                {
+                                    <tr>
+                                        <td>@entry.ClockIn.ToString("t")</td>
+                                        <td>@(entry.ClockOut?.ToString("t") ?? "—")</td>
+                                        <td>
+                                            @if (entry.ClockOut.HasValue)
+                                            {
+                                                @FormatDuration(entry.DurationMinutes)
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="history-card">
+                <div class="history-header">
+                    <h4>📊 This Week</h4>
+                    <span class="total-badge">Total: @FormatDuration(weekTotalMinutes)</span>
+                </div>
+
+                @if (weekEntries == null || weekEntries.Count == 0)
+                {
+                    <p class="no-entries">No entries this week yet.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Clock In</th>
+                                    <th>Clock Out</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in weekEntries)
+                                {
+                                    <tr>
+                                        <td>@entry.ClockIn.ToString("ddd M/d")</td>
+                                        <td>@entry.ClockIn.ToString("t")</td>
+                                        <td>@(entry.ClockOut?.ToString("t") ?? "—")</td>
+                                        <td>
+                                            @if (entry.ClockOut.HasValue)
+                                            {
+                                                @FormatDuration(entry.DurationMinutes)
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
                     </div>
                 }
             </div>
         </div>
 
-        <ConfirmDialog 
-            IsVisible="@showClockOutConfirm" 
+        @* Admin Section - Only visible to Admin role *@
+        @if (isAdmin)
+        {
+            <div class="admin-section">
+                <h4>👥 Admin: Who's Clocked In Now</h4>
+
+                @if (clockedInUsers == null)
+                {
+                    <p>Loading...</p>
+                }
+                else if (clockedInUsers.Count == 0)
+                {
+                    <p class="no-entries">No employees are currently clocked in.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Employee</th>
+                                    <th>Clocked In At</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var (user, entry) in clockedInUsers)
+                                {
+                                    <tr>
+                                        <td><strong>@user.DisplayName</strong></td>
+                                        <td>@entry.ClockIn.ToString("t")</td>
+                                        <td>@FormatDuration((int)(DateTime.Now - entry.ClockIn).TotalMinutes)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <a href="/admin" class="btn btn-outline-primary btn-sm mt-2">Go to Admin Console →</a>
+            </div>
+        }
+
+        <ConfirmDialog
+            IsVisible="@showClockOutConfirm"
             Title="Confirm Clock Out"
             Message="Are you sure you want to clock out?"
             Details="@($"Clocked in since: {clockInTime:t} ({elapsedTime} elapsed)")"
@@ -204,6 +362,222 @@
             padding: 1.5rem;
         }
     }
+
+    /* History Section Styles */
+    .history-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-top: 2rem;
+    }
+
+    .history-card {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .history-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid #f0f0f0;
+    }
+
+    .history-header h4 {
+        margin: 0;
+        color: #333;
+        font-size: 1.1em;
+    }
+
+    .total-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 0.35rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+
+    .no-entries {
+        color: #888;
+        font-style: italic;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .history-card .table {
+        margin-bottom: 0;
+        font-size: 0.9em;
+    }
+
+    .history-card .table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        color: #555;
+        border-bottom: 2px solid #e0e0e0;
+    }
+
+    .history-card .table td {
+        vertical-align: middle;
+    }
+
+    /* Admin Section Styles */
+    .admin-section {
+        margin-top: 2rem;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        padding: 1.5rem;
+    }
+
+    .admin-section h4 {
+        margin: 0 0 1rem 0;
+        color: #667eea;
+    }
+
+    .admin-section .table th {
+        background: #667eea;
+        color: white;
+    }
+
+    @@media (max-width: 768px) {
+        .history-section {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Live Timer Styles */
+    .elapsed-timer {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin: 1rem 0;
+        padding: 1rem 1.5rem;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    .timer-label {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 0.9em;
+        font-weight: 500;
+    }
+
+    .timer-value {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #00ff88;
+        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        letter-spacing: 2px;
+    }
+
+    /* Pulsing Active Card */
+    .status-card-active {
+        animation: cardPulse 3s ease-in-out infinite;
+        border: 2px solid #28a745;
+    }
+
+    @@keyframes cardPulse {
+        0%, 100% {
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+        }
+        50% {
+            box-shadow: 0 4px 20px rgba(40, 167, 69, 0.4);
+        }
+    }
+
+    /* Toast Notification Styles */
+    .toast-container {
+        position: fixed;
+        top: 1.5rem;
+        right: 1.5rem;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        max-width: 400px;
+    }
+
+    .toast-notification {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem 1.25rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        animation: toastSlideIn 0.3s ease-out;
+        backdrop-filter: blur(10px);
+    }
+
+    .toast-notification.toast-success {
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        border-left: 4px solid #28a745;
+        color: #155724;
+    }
+
+    .toast-notification.toast-error {
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+        border-left: 4px solid #dc3545;
+        color: #721c24;
+    }
+
+    .toast-icon {
+        font-size: 1.25rem;
+    }
+
+    .toast-message {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .toast-close {
+        background: none;
+        border: none;
+        font-size: 1.25rem;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .toast-close:hover {
+        opacity: 1;
+    }
+
+    @@keyframes toastSlideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    .toast-exit {
+        animation: toastSlideOut 0.3s ease-in forwards;
+    }
+
+    @@keyframes toastSlideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
 </style>
 
 @code {
@@ -211,6 +585,7 @@
     private int userId;
     private string? displayName;
     private string? userRole;
+    private bool isAdmin;
 
     private bool isClockedIn;
     private string statusText = "Loading...";
@@ -218,6 +593,15 @@
     private string? error;
     private bool showClockOutConfirm = false;
     private DateTime clockInTime;
+
+    // History data
+    private IReadOnlyList<TimeEntry>? todayEntries;
+    private IReadOnlyList<TimeEntry>? weekEntries;
+    private int todayTotalMinutes => todayEntries?.Sum(e => e.DurationMinutes) ?? 0;
+    private int weekTotalMinutes => weekEntries?.Sum(e => e.DurationMinutes) ?? 0;
+
+    // Admin data
+    private List<(UserAccount user, TimeEntry entry)>? clockedInUsers;
 
     protected override async Task OnInitializedAsync()
     {
@@ -234,10 +618,17 @@
             // Extract user info from claims
             displayName = user.FindFirst("DisplayName")?.Value ?? user.Identity?.Name ?? "User";
             userRole = user.FindFirst(ClaimTypes.Role)?.Value ?? "Employee";
+            isAdmin = userRole?.Equals("Admin", StringComparison.OrdinalIgnoreCase) ?? false;
             var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             userId = int.TryParse(userIdClaim, out var id) ? id : 0;
 
             await RefreshStatus();
+            await LoadHistory();
+
+            if (isAdmin)
+            {
+                await LoadClockedInUsers();
+            }
         }
         catch (Exception ex)
         {
@@ -268,6 +659,40 @@
         }
     }
 
+    private async Task LoadHistory()
+    {
+        var today = DateTime.Today;
+        var weekStart = today.AddDays(-(int)today.DayOfWeek); // Sunday
+        var tomorrow = today.AddDays(1);
+
+        todayEntries = await Clock.GetEntriesAsync(userId, today, tomorrow);
+        weekEntries = await Clock.GetEntriesAsync(userId, weekStart, tomorrow);
+    }
+
+    private async Task LoadClockedInUsers()
+    {
+        var allUsers = await AuthService.GetAllUsersAsync();
+        var result = new List<(UserAccount, TimeEntry)>();
+
+        foreach (var user in allUsers)
+        {
+            var openEntry = await Clock.GetOpenEntryAsync(user.Id);
+            if (openEntry != null)
+            {
+                result.Add((user, openEntry));
+            }
+        }
+
+        clockedInUsers = result.OrderBy(x => x.Item2.ClockIn).ToList();
+    }
+
+    private string FormatDuration(int totalMinutes)
+    {
+        var hours = totalMinutes / 60;
+        var minutes = totalMinutes % 60;
+        return $"{hours}h {minutes:D2}m";
+    }
+
     private async Task OnClockIn()
     {
         message = null;
@@ -276,6 +701,7 @@
             await Clock.ClockInAsync(userId, DateTime.Now);
             message = "✅ You have been clocked in successfully.";
             await RefreshStatus();
+            await LoadHistory();
         }
         catch (Exception ex)
         {
@@ -300,6 +726,7 @@
             var minutes = closed.DurationMinutes % 60;
             message = $"✅ Clocked out successfully. Duration: {hours}h {minutes}m";
             await RefreshStatus();
+            await LoadHistory();
         }
         catch (Exception ex)
         {

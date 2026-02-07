@@ -66,7 +66,14 @@ app.MapPost("/api/login", async (HttpContext context, IAuthService auth) =>
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     var principal = new ClaimsPrincipal(identity);
 
-    await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+    // Make the cookie persistent so it survives browser restarts
+    var authProperties = new AuthenticationProperties
+    {
+        IsPersistent = true,
+        ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
+    };
+
+    await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
     context.Response.Redirect("/dashboard");
 });
 
